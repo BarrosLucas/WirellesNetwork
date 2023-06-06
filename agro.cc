@@ -17,6 +17,8 @@
 #include "ns3/ocb-wifi-mac.h"
 #include "ns3/wifi-80211p-helper.h"
 #include "ns3/wave-mac-helper.h"
+#include <sys/socket.h>
+#include <netinet/in.h>
 
 using namespace ns3;
 using namespace std::chrono_literals;
@@ -27,7 +29,7 @@ NS_LOG_COMPONENT_DEFINE ("ProjetoAgro");
  * Receive pacote no nó intermediário
  * \param socket Rx socket
  */
-void ReceivePacket (Ptr<Socket> socket) {
+void ReceivePacket (Ptr<Socket> socket) {      
   Ptr<Packet> pkt = socket->Recv ();
   uint8_t *buffer = new uint8_t[pkt->GetSize ()];
   pkt->CopyData(buffer, pkt->GetSize ());
@@ -68,15 +70,15 @@ void ReceivePacketServer (Ptr<Socket> socket) {
  * \param pktCount number of packets
  * \param pktInterval interval between packet generation
  */
-static void GenerateTraffic (Ptr<Socket> socket, uint32_t pktSize, uint32_t pktCount, Time pktInterval, Ptr<Packet> pkt) {
+static void GenerateTraffic(Ptr<Socket> socket, uint32_t pktSize, uint32_t pktCount, Time pktInterval, Ptr<Packet> pkt) {
   if (pktCount > 0) {
-    uint8_t *buffer = new uint8_t[pkt->GetSize ()];
-    pkt->CopyData(buffer, pkt->GetSize ());
+    uint8_t *buffer = new uint8_t[pkt->GetSize()];
+    pkt->CopyData(buffer, pkt->GetSize());
     std::string s = std::string((char*)buffer);
     std::string sensor = packetSender(s);
     std::cout << "Enviando leitura média de " << sensor << std::endl;
-    socket->Send (pkt);
-    Simulator::Schedule (pktInterval, &GenerateTraffic, socket, pktSize,pktCount - 1, pktInterval, pkt);
+    socket->Send(pkt);
+    Simulator::Schedule(pktInterval, &GenerateTraffic, socket, pktSize, pktCount - 1, pktInterval, pkt);
   } else {
     socket->Close();
   }
@@ -111,16 +113,28 @@ int main (int argc, char *argv[]) {
   std::cout << "Definindo nós sensores, servidor e intermediário" << std::endl;
 
   // Definição dos nós
-  Ptr<Node> noSensorUmidade = CreateObject<Node>();
-  Ptr<Node> noSensorTemperatura = CreateObject<Node>();
-  Ptr<Node> noSensorNutrientes = CreateObject<Node>();
-  Ptr<Node> noIntermediario = CreateObject<Node>();
-  Ptr<Node> noServidor = CreateObject<Node>();
+  Ptr<Node> noSensorUmidade1 = CreateObject<Node>();
+  Ptr<Node> noSensorTemperatura1 = CreateObject<Node>();
+  Ptr<Node> noSensorNutrientes1 = CreateObject<Node>();
+  Ptr<Node> noIntermediario1 = CreateObject<Node>();
+
+  Ptr<Node> noSensorUmidade2 = CreateObject<Node>();
+  Ptr<Node> noSensorTemperatura2 = CreateObject<Node>();
+  Ptr<Node> noSensorNutrientes2 = CreateObject<Node>();
+  Ptr<Node> noIntermediario2 = CreateObject<Node>();
+
+  Ptr<Node> noServidorCentral = CreateObject<Node>();
+
 
   std::cout << "Definindo subrede 1 - A primeira estufa" << std::endl;
 
   // Container da estufa 1
-  NodeContainer fluxo(noSensorUmidade, noSensorTemperatura, noIntermediario, noServidor, noSensorNutrientes);
+  NodeContainer estufa1(noSensorUmidade1, noSensorTemperatura1, noIntermediario1, noSensorNutrientes1);
+
+  std::cout << "Definindo subrede 2 - Estufa 2" << std::endl;
+
+  // Container da estufa 2
+  NodeContainer estufa2(noSensorUmidade2, noSensorTemperatura2, noIntermediario2, noSensorNutrientes2);
 
   std::cout << "Configurando camada física e o canal para a rede criada" << std::endl;
 
@@ -136,11 +150,17 @@ int main (int argc, char *argv[]) {
                                       "DataMode",StringValue (phyMode),
                                       "ControlMode",StringValue (phyMode));
 
-  std::cout << "Conectando estufa 1 a rede" << std::endl;
-  // conectando estufa 1 a rede
-  NetDeviceContainer devices = wifi80211p.Install (wifiPhy, wifi80211pMac, fluxo);
+  std::cout << "Conectando estufa 1 à rede" << std::endl;
+  // Conectando estufa 1 à rede
+  NetDeviceContainer devicesEstufa1 = wifi80211p.Install(wifiPhy, wifi80211pMac, estufa1);
 
+  std::cout << "Conectando estufa 2 à rede" << std::endl;
+  // Conectando estufa 2 à rede
+  NetDeviceContainer devicesEstufa2 = wifi80211p.Install(wifiPhy, wifi80211pMac, estufa2);
 
+  std::cout << "Conectando servidor central à rede" << std::endl;
+  // Conectando servidor central à rede
+  NetDeviceContainer devicesServidorCentral = wifi80211p.Install(wifiPhy, wifi80211pMac, noServidorCentral);
 
 
   std::cout << "Posicionando os nós"  << std::endl;
@@ -154,51 +174,90 @@ int main (int argc, char *argv[]) {
   positionAlloc->Add (Vector (5.0, 10.0, 0.0));
   mobility.SetPositionAllocator (positionAlloc);
   mobility.SetMobilityModel ("ns3::ConstantPositionMobilityModel");
-  mobility.Install (fluxo);
+  mobility.Install(estufa1);
+  mobility.Install(estufa2);
+  mobility.Install(noServidorCentral);
 
   InternetStackHelper internet;
-  internet.Install (fluxo);
+  internet.Install(estufa1);
+  internet.Install(estufa2);
+  internet.Install(noServidorCentral);
 
   std::cout << "Definindo endereços" << std::endl;
   // definindo endereços dos dispositivos da rede
   Ipv4AddressHelper ipv4Estufas;
-  NS_LOG_INFO ("Assign IP Addresses.");
-  ipv4Estufas.SetBase ("10.1.1.0", "255.255.255.0");
-  Ipv4InterfaceContainer i = ipv4Estufas.Assign (devices);
+  NS_LOG_INFO("Assign IP Addresses for Estufa1.");
+  ipv4Estufas.SetBase("10.1.1.0", "255.255.255.0");
+  Ipv4InterfaceContainer iEstufa1 = ipv4Estufas.Assign(devicesEstufa1);
+
+  NS_LOG_INFO("Assign IP Addresses for Estufa2.");
+  ipv4Estufas.SetBase("10.1.2.0", "255.255.255.0");
+  Ipv4InterfaceContainer iEstufa2 = ipv4Estufas.Assign(devicesEstufa2);
+
+  NS_LOG_INFO("Assign IP Addresses for Servidor Central.");
+  ipv4Estufas.SetBase("10.1.3.0", "255.255.255.0");
+  Ipv4InterfaceContainer iServidorCentral = ipv4Estufas.Assign(devicesServidorCentral);
   
   std::cout << "Configurando recebimento do pacote no Servidor" << std::endl;
   // configurando o recebimento do pacote no nó servidor
   TypeId tid = TypeId::LookupByName ("ns3::UdpSocketFactory");
-  Ptr<Socket> socketServidor = Socket::CreateSocket (fluxo.Get (3), tid);
-  InetSocketAddress localServidor = InetSocketAddress (Ipv4Address::GetAny (), 80);
+
+  Ptr<Socket> socketServidor = Socket::CreateSocket (noServidorCentral, tid);
+  InetSocketAddress localServidor = InetSocketAddress (Ipv4Address::GetAny(), 80);
   socketServidor->Bind(localServidor);
   socketServidor->SetRecvCallback (MakeCallback (&ReceivePacketServer));
 
   std::cout << "Configurando recebimento do pacote no nó intermediário" << std::endl;
-  // configurando o recebimento do pacote no nó intermediário
-  Ptr<Socket> socketIntermediario = Socket::CreateSocket (fluxo.Get (2), tid);
-  InetSocketAddress local = InetSocketAddress (Ipv4Address::GetAny (), 80);
-  InetSocketAddress remoteServer = InetSocketAddress (Ipv4Address ("10.1.1.0"), 80);
-  socketIntermediario->Connect (remoteServer);
-  socketIntermediario->Bind(local);
-  socketIntermediario->SetRecvCallback (MakeCallback (&ReceivePacket));
+  // Nó intermediário 1
+  Ptr<Socket> socketIntermediario1 = Socket::CreateSocket(estufa1.Get(2), tid);
+  InetSocketAddress localIntermediario1 = InetSocketAddress(Ipv4Address::GetAny(), 80);
+  InetSocketAddress remoteServidorCentral1 = InetSocketAddress(Ipv4Address("10.1.3.0"), 80);
+  socketIntermediario1->Connect(remoteServidorCentral1);
+  socketIntermediario1->Bind(localIntermediario1);
+  socketIntermediario1->SetRecvCallback(MakeCallback(&ReceivePacket));
 
-  InetSocketAddress remoteIntermediario = InetSocketAddress (Ipv4Address ("255.255.255.255"), 80);
+  // Nó intermediário 2
+  Ptr<Socket> socketIntermediario2 = Socket::CreateSocket(estufa2.Get(2), tid);
+  InetSocketAddress localIntermediario2 = InetSocketAddress(Ipv4Address::GetAny(), 80);
+  InetSocketAddress remoteServidorCentral2 = InetSocketAddress(iServidorCentral.GetAddress(0), 80);
+  socketIntermediario2->Connect(remoteServidorCentral2);
+  socketIntermediario2->Bind(localIntermediario2);
+  std::cout << "Configurando envio de pacote dos sensores para os nós intermediários" << std::endl;
   
-  // confugurando sensor de umidade da estufa 1
-  Ptr<Socket> sensorUmidade = Socket::CreateSocket (fluxo.Get (0), tid);
-  sensorUmidade->SetAllowBroadcast (true);
-  sensorUmidade->Connect (remoteIntermediario);
+  // Configurando envio de pacote dos sensores para os nós intermediários
+  InetSocketAddress remoteIntermediario = InetSocketAddress (Ipv4Address ("255.255.255.255"), 80);
 
-  // configurando sensor de temperatura da estufa 1
-  Ptr<Socket> sensorTemperatura = Socket::CreateSocket (fluxo.Get (1), tid);
-  sensorTemperatura->SetAllowBroadcast (true);
-  sensorTemperatura->Connect (remoteIntermediario);
+  // Sensor de umidade da estufa 1
+  Ptr<Socket> sensorUmidade1 = Socket::CreateSocket(estufa1.Get(0), tid);
+  sensorUmidade1->SetAllowBroadcast(true);
+  sensorUmidade1->Connect(remoteIntermediario);
 
-  // configurando sensor de nutrientes da estufa 1
-  Ptr<Socket> sensorNutrientes = Socket::CreateSocket (fluxo.Get (4), tid);
-  sensorNutrientes->SetAllowBroadcast (true);
-  sensorNutrientes->Connect (remoteIntermediario);
+  // Sensor de temperatura da estufa 1
+  Ptr<Socket> sensorTemperatura1 = Socket::CreateSocket(estufa1.Get(1), tid);
+  sensorTemperatura1->SetAllowBroadcast(true);
+  sensorTemperatura1->Connect(remoteIntermediario);
+
+
+  Ptr<Socket> sensorNutrientes1 = Socket::CreateSocket(estufa1.Get(3), tid);
+  sensorNutrientes1->SetAllowBroadcast(true);
+  sensorNutrientes1->Connect(remoteIntermediario);
+
+
+  // Sensor de umidade da estufa 2
+  Ptr<Socket> sensorUmidade2 = Socket::CreateSocket(estufa2.Get(0), tid);
+  sensorUmidade2->SetAllowBroadcast(true);
+  sensorUmidade2->Connect(remoteIntermediario);
+
+  // Sensor de temperatura da estufa 2
+  Ptr<Socket> sensorTemperatura2 = Socket::CreateSocket(estufa2.Get(1), tid);
+  sensorTemperatura2->SetAllowBroadcast(true);
+  sensorTemperatura2->Connect(remoteIntermediario);
+
+  // Sensor de nutrientes da estufa 2
+  Ptr<Socket> sensorNutrientes2 = Socket::CreateSocket(estufa2.Get(3), tid);
+  sensorNutrientes2->SetAllowBroadcast(true);
+  sensorNutrientes2->Connect(remoteIntermediario);
+
 
   int sensor = 0;
   int timer = 0;
@@ -215,17 +274,17 @@ int main (int argc, char *argv[]) {
     msg << content + myText << '\0';
     Ptr<Packet> packet = Create<Packet>((uint8_t*) msg.str().c_str(), msg.str().length());
     if (sensor == 0) {
-      Simulator::ScheduleWithContext (sensorUmidade->GetNode ()->GetId (),
+      Simulator::ScheduleWithContext (sensorUmidade1->GetNode ()->GetId (),
                                 Seconds (timer * 1.5), &GenerateTraffic,
-                                sensorUmidade, packetSize, numPackets, interPacketInterval, packet); 
+                                sensorUmidade1, packetSize, numPackets, interPacketInterval, packet); 
     } else if (sensor == 1) {
-      Simulator::ScheduleWithContext (sensorTemperatura->GetNode ()->GetId (),
+      Simulator::ScheduleWithContext (sensorTemperatura1->GetNode ()->GetId (),
                                 Seconds (timer * 1.5), &GenerateTraffic,
-                                sensorTemperatura, packetSize, numPackets, interPacketInterval, packet); 
+                                sensorTemperatura1, packetSize, numPackets, interPacketInterval, packet); 
     } else {
-      Simulator::ScheduleWithContext (sensorNutrientes->GetNode ()->GetId (),
+      Simulator::ScheduleWithContext (sensorNutrientes1->GetNode ()->GetId (),
                                 Seconds (timer * 1.5), &GenerateTraffic,
-                                sensorNutrientes, packetSize, numPackets, interPacketInterval, packet); 
+                                sensorNutrientes1, packetSize, numPackets, interPacketInterval, packet); 
     }
 
     if (sensor < 2) sensor++;
@@ -238,11 +297,11 @@ int main (int argc, char *argv[]) {
 
   // Configurando a animação com o NetAnim
   AnimationInterface anim("anim.xml");
-  anim.SetConstantPosition(noSensorUmidade, 0.0, 0.0);
-  anim.SetConstantPosition(noSensorTemperatura, 5.0, 0.0);
-  anim.SetConstantPosition(noIntermediario, 10.0, 0.0);
-  anim.SetConstantPosition(noServidor, 5.0, 5.0);
-  anim.SetConstantPosition(noSensorNutrientes, 5.0, 10.0);
+  anim.SetConstantPosition(noSensorUmidade1, 0.0, 0.0);
+  anim.SetConstantPosition(noSensorTemperatura1, 5.0, 0.0);
+  anim.SetConstantPosition(noIntermediario1, 10.0, 0.0);
+  anim.SetConstantPosition(noServidorCentral, 5.0, 5.0);
+  anim.SetConstantPosition(noSensorNutrientes1, 5.0, 10.0);
 
   anim.EnablePacketMetadata(true); // Ativar metadados do pacote na animação
 
