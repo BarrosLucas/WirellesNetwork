@@ -59,8 +59,25 @@ void ReceivePacketServer (Ptr<Socket> socket) {
   std::string s = std::string((char*)buffer);
   std::string sensor = packetSender(s);
   std::cout << "Pacote de " << sensor << " recebido no nó servidor" << std::endl;
-  if (s.find('0') != -1) std::cout << sensor << " fora do esperado\nEnviando sinal para no atuador\n\n" << std::endl;
-  else std::cout << sensor << " OK\n\n" << std::endl;
+  if (s.find('0') != -1){
+    std::cout << sensor << " fora do esperado.\nEnviando sinal para atuador de " << sensor << std::endl;
+    if (sensor == "Temperatura") {
+      // Enviar para atuador de temperatura
+      Ptr<Packet> responsePkt = Create<Packet>(reinterpret_cast<const uint8_t*>("Sinal para atuador de temperatura"), 30);
+      socket->Send(responsePkt);
+    } else if (sensor == "Umidade") {
+      // Enviar para atuador de umidade
+      Ptr<Packet> responsePkt = Create<Packet>(reinterpret_cast<const uint8_t*>("Sinal para atuador de umidade"), 28);
+      socket->Send(responsePkt);
+    } else {
+      // Enviar para atuador de nutrientes
+      Ptr<Packet> responsePkt = Create<Packet>(reinterpret_cast<const uint8_t*>("Sinal para atuador de nutrientes"), 31);
+      socket->Send(responsePkt);
+    }
+  } 
+  else{
+     std::cout << sensor << " OK\n" << std::endl;
+  }
 }
 
 /**
@@ -117,11 +134,17 @@ int main (int argc, char *argv[]) {
   Ptr<Node> noSensorTemperatura1 = CreateObject<Node>();
   Ptr<Node> noSensorNutrientes1 = CreateObject<Node>();
   Ptr<Node> noIntermediario1 = CreateObject<Node>();
+  Ptr<Node> noAtuadorUmidade1 = CreateObject<Node>();
+  Ptr<Node> noAtuadorTemperatura1 = CreateObject<Node>();
+  Ptr<Node> noAtuadorNutrientes1 = CreateObject<Node>();
 
   Ptr<Node> noSensorUmidade2 = CreateObject<Node>();
   Ptr<Node> noSensorTemperatura2 = CreateObject<Node>();
   Ptr<Node> noSensorNutrientes2 = CreateObject<Node>();
   Ptr<Node> noIntermediario2 = CreateObject<Node>();
+  Ptr<Node> noAtuadorUmidade2 = CreateObject<Node>();
+  Ptr<Node> noAtuadorTemperatura2 = CreateObject<Node>();
+  Ptr<Node> noAtuadorNutrientes2 = CreateObject<Node>();
 
   Ptr<Node> noServidorCentral = CreateObject<Node>();
 
@@ -129,12 +152,12 @@ int main (int argc, char *argv[]) {
   std::cout << "Definindo subrede 1 - A primeira estufa" << std::endl;
 
   // Container da estufa 1
-  NodeContainer estufa1(noSensorUmidade1, noSensorTemperatura1, noIntermediario1, noSensorNutrientes1);
+  NodeContainer estufa1(noSensorUmidade1, noSensorTemperatura1, noIntermediario1, noSensorNutrientes1, noAtuadorUmidade1, noAtuadorTemperatura1, noAtuadorNutrientes1);
 
   std::cout << "Definindo subrede 2 - Estufa 2" << std::endl;
 
   // Container da estufa 2
-  NodeContainer estufa2(noSensorUmidade2, noSensorTemperatura2, noIntermediario2, noSensorNutrientes2);
+  NodeContainer estufa2(noSensorUmidade2, noSensorTemperatura2, noIntermediario2, noSensorNutrientes2, noAtuadorUmidade2, noAtuadorTemperatura2, noAtuadorNutrientes2);
 
   std::cout << "Configurando camada física e o canal para a rede criada" << std::endl;
 
@@ -170,6 +193,9 @@ int main (int argc, char *argv[]) {
   positionAlloc->Add (Vector (0.0, 0.0, 0.0));
   positionAlloc->Add (Vector (5.0, 0.0, 0.0));
   positionAlloc->Add (Vector (10.0, 0.0, 0.0));
+  positionAlloc->Add (Vector (0.0, 2.5, 0.0));
+  positionAlloc->Add (Vector (5.0, 2.5, 0.0));
+  positionAlloc->Add (Vector (10.0, 2.5, 0.0));
   positionAlloc->Add (Vector (5.0, 5.0, 0.0));
   positionAlloc->Add (Vector (5.0, 10.0, 0.0));
   mobility.SetPositionAllocator (positionAlloc);
@@ -227,36 +253,60 @@ int main (int argc, char *argv[]) {
   // Configurando envio de pacote dos sensores para os nós intermediários
   InetSocketAddress remoteIntermediario = InetSocketAddress (Ipv4Address ("255.255.255.255"), 80);
 
-  // Sensor de umidade da estufa 1
+  // Sensores da umidade da estufa 1
   Ptr<Socket> sensorUmidade1 = Socket::CreateSocket(estufa1.Get(0), tid);
   sensorUmidade1->SetAllowBroadcast(true);
   sensorUmidade1->Connect(remoteIntermediario);
 
-  // Sensor de temperatura da estufa 1
   Ptr<Socket> sensorTemperatura1 = Socket::CreateSocket(estufa1.Get(1), tid);
   sensorTemperatura1->SetAllowBroadcast(true);
   sensorTemperatura1->Connect(remoteIntermediario);
-
 
   Ptr<Socket> sensorNutrientes1 = Socket::CreateSocket(estufa1.Get(3), tid);
   sensorNutrientes1->SetAllowBroadcast(true);
   sensorNutrientes1->Connect(remoteIntermediario);
 
 
-  // Sensor de umidade da estufa 2
+  // Atuadores da umidade da estufa 1
+  Ptr<Socket> atuadorUmidade1 = Socket::CreateSocket(estufa1.Get(4), tid);
+  atuadorUmidade1->SetAllowBroadcast(true);
+  atuadorUmidade1->Connect(remoteIntermediario);
+
+  Ptr<Socket> atuadorTemperatura1 = Socket::CreateSocket(estufa1.Get(5), tid);
+  atuadorTemperatura1->SetAllowBroadcast(true);
+  atuadorTemperatura1->Connect(remoteIntermediario);
+
+  Ptr<Socket> atuadorNutrientes1 = Socket::CreateSocket(estufa1.Get(6), tid);
+  atuadorNutrientes1->SetAllowBroadcast(true);
+  atuadorNutrientes1->Connect(remoteIntermediario);
+
+
+  // Sensores de umidade da estufa 2
   Ptr<Socket> sensorUmidade2 = Socket::CreateSocket(estufa2.Get(0), tid);
   sensorUmidade2->SetAllowBroadcast(true);
   sensorUmidade2->Connect(remoteIntermediario);
 
-  // Sensor de temperatura da estufa 2
   Ptr<Socket> sensorTemperatura2 = Socket::CreateSocket(estufa2.Get(1), tid);
   sensorTemperatura2->SetAllowBroadcast(true);
   sensorTemperatura2->Connect(remoteIntermediario);
 
-  // Sensor de nutrientes da estufa 2
   Ptr<Socket> sensorNutrientes2 = Socket::CreateSocket(estufa2.Get(3), tid);
   sensorNutrientes2->SetAllowBroadcast(true);
   sensorNutrientes2->Connect(remoteIntermediario);
+
+
+  // Atuadores da umidade da estufa 2
+  Ptr<Socket> atuadorUmidade2 = Socket::CreateSocket(estufa1.Get(4), tid);
+  atuadorUmidade2->SetAllowBroadcast(true);
+  atuadorUmidade2->Connect(remoteIntermediario);
+
+  Ptr<Socket> atuadorTemperatura2 = Socket::CreateSocket(estufa1.Get(5), tid);
+  atuadorTemperatura2->SetAllowBroadcast(true);
+  atuadorTemperatura2->Connect(remoteIntermediario);
+
+  Ptr<Socket> atuadorNutrientes2 = Socket::CreateSocket(estufa1.Get(6), tid);
+  atuadorNutrientes2->SetAllowBroadcast(true);
+  atuadorNutrientes2->Connect(remoteIntermediario);
 
 
   int sensor = 0;
@@ -299,9 +349,19 @@ int main (int argc, char *argv[]) {
   AnimationInterface anim("anim.xml");
   anim.SetConstantPosition(noSensorUmidade1, 0.0, 0.0);
   anim.SetConstantPosition(noSensorTemperatura1, 5.0, 0.0);
-  anim.SetConstantPosition(noIntermediario1, 10.0, 0.0);
-  anim.SetConstantPosition(noServidorCentral, 5.0, 5.0);
-  anim.SetConstantPosition(noSensorNutrientes1, 5.0, 10.0);
+  anim.SetConstantPosition(noSensorNutrientes1, 10.0, 0.0);
+  anim.SetConstantPosition(noAtuadorUmidade1, 0.0, 2.5);
+  anim.SetConstantPosition(noAtuadorTemperatura1, 5.0, 2.5);
+  anim.SetConstantPosition(noAtuadorNutrientes1, 10.0, 2.5);
+  anim.SetConstantPosition(noIntermediario1, 5.0, 5.0);
+  anim.SetConstantPosition(noServidorCentral, 5.0, 10.0);
+  anim.SetConstantPosition(noIntermediario2, 5.0, 15.0);
+  anim.SetConstantPosition(noSensorUmidade2, 0.0, 17.5);
+  anim.SetConstantPosition(noSensorTemperatura2, 5.0, 17.5);
+  anim.SetConstantPosition(noSensorNutrientes2, 10.0, 17.5);
+  anim.SetConstantPosition(noAtuadorUmidade2, 0.0, 20);
+  anim.SetConstantPosition(noAtuadorTemperatura2, 5.0, 20);
+  anim.SetConstantPosition(noAtuadorNutrientes2, 10.0, 20);
 
   anim.EnablePacketMetadata(true); // Ativar metadados do pacote na animação
 
